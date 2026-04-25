@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>stock.app</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body>
+
+<div class="app">
+  <div class="topbar">
+    <div>
+      <div class="logo">stock<span>.app</span></div>
+      <div class="store-name" id="store-label">Cargando...</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="user-pill">
+        <div class="user-dot"></div>
+        <span class="user-name" id="topbar-user">{{ usuario_nombre }}</span>
+        <span class="user-role-pill badge-{{ usuario_rol }}">{{ usuario_rol|title }}</span>
+      </div>
+      <button class="btn btn-ghost btn-sm" id="btn-logout">Salir</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div id="toast"></div>
+
+    <div class="stats">
+      <div class="stat info"><div class="stat-val" id="s-total">0</div><div class="stat-label">Productos</div></div>
+      <div class="stat ok"><div class="stat-val" id="s-valor">$0</div><div class="stat-label">Valor stock</div></div>
+      <div class="stat warn"><div class="stat-val" id="s-bajo">0</div><div class="stat-label">Stock bajo</div></div>
+      <div class="stat ok"><div class="stat-val" id="s-ventas">$0</div><div class="stat-label">Ventas hoy</div></div>
+      <div class="stat purple"><div class="stat-val" id="s-clientes">0</div><div class="stat-label">Clientes</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab active" onclick="setTab('inventario',this)">Inventario</button>
+      <button class="tab" onclick="setTab('ventas',this)">Venta</button>
+      <button class="tab" onclick="setTab('clientes',this)">Clientes</button>
+      {% if perms.reportes %}
+      <button class="tab" onclick="setTab('reportes',this)">Reportes</button>
+      {% endif %}
+      <button class="tab" onclick="setTab('historial',this)">Historial</button>
+      <button class="tab" onclick="setTab('alertas',this)">Alertas</button>
+      {% if perms.exportar %}
+      <button class="tab" onclick="setTab('exportar',this)">Exportar</button>
+      {% endif %}
+      {% if perms.usuarios %}
+      <button class="tab" onclick="setTab('usuarios',this)">Usuarios</button>
+      {% endif %}
+    </div>
+
+    <!-- INVENTARIO -->
+    <div class="panel active" id="tab-inventario">
+      <div class="section-header">
+        <span class="section-title">Productos en stock</span>
+        {% if perms.inventario %}
+        <button class="btn btn-primary btn-sm" onclick="showFormProducto()">+ Producto</button>
+        {% endif %}
+      </div>
+      <div id="form-producto" style="display:none;margin-bottom:14px">
+        <div class="form-card">
+          <div class="form-title" id="form-titulo">Nuevo producto</div>
+          <div class="form-grid">
+            <div class="field"><label>Nombre</label><input type="text" id="f-nombre" placeholder="Ej: Arroz 1kg"></div>
+            <div class="field"><label>Categoría</label>
+              <select id="f-cat">
+                <option>Almacén</option><option>Bebidas</option><option>Lácteos</option>
+                <option>Panadería</option><option>Carnes</option><option>Verduras</option><option>Otro</option>
+              </select>
+            </div>
+            <div class="field"><label>Stock actual</label><input type="number" id="f-stock" min="0" placeholder="0"></div>
+            <div class="field"><label>Stock mínimo</label><input type="number" id="f-min" min="0" placeholder="5"></div>
+            <div class="field"><label>Precio costo ($)</label><input type="number" id="f-costo" min="0" placeholder="0"></div>
+            <div class="field"><label>Precio venta ($)</label><input type="number" id="f-precio" min="0" placeholder="0"></div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-ghost" onclick="cancelarForm()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarProducto()">Guardar</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap">
+        <div class="search-row">
+          <input type="search" id="buscar" placeholder="Buscar producto..." oninput="renderTabla()">
+          <select id="filtro-cat" onchange="renderTabla()">
+            <option value="">Todas las categorías</option>
+            <option>Almacén</option><option>Bebidas</option><option>Lácteos</option>
+            <option>Panadería</option><option>Carnes</option><option>Verduras</option><option>Otro</option>
+          </select>
+        </div>
+        <table><thead><tr><th>Producto</th><th>Categoría</th><th>Stock</th><th>P. Venta</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tabla-body"></tbody></table>
+      </div>
+    </div>
+
+    <!-- VENTAS -->
+    <div class="panel" id="tab-ventas">
+      {% if perms.ventas %}
+      <div class="form-card">
+        <div class="form-title">Registrar venta</div>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="field"><label>Cliente</label>
+            <select id="v-cliente" style="width:100%"><option value="">Público general</option></select>
+          </div>
+          <div class="field"><label>Método de pago</label>
+            <select id="v-pago" style="width:100%">
+              <option>Efectivo</option><option>Débito</option><option>Crédito</option><option>Transferencia</option>
+            </select>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap">
+          <div class="field" style="flex:1;min-width:150px"><label>Producto</label>
+            <select id="v-producto" style="width:100%"><option value="">Seleccionar...</option></select>
+          </div>
+          <div class="field" style="width:80px"><label>Cantidad</label>
+            <input type="number" id="v-cantidad" min="1" value="1" style="width:100%">
+          </div>
+          <button class="btn btn-primary" onclick="agregarItemVenta()">+</button>
+        </div>
+        <div class="venta-items" id="venta-items"><div class="empty">Sin productos</div></div>
+        <div class="total-row"><span style="color:var(--text2);font-size:13px">Total</span><span id="v-total">$0</span></div>
+        <div class="form-actions">
+          <button class="btn btn-ghost" onclick="cancelarVenta()">Limpiar</button>
+          <button class="btn btn-primary" onclick="confirmarVenta()">Confirmar venta</button>
+        </div>
+      </div>
+      {% else %}
+      <div class="locked-msg"><strong>Acceso restringido</strong>No tienes permiso para registrar ventas.</div>
+      {% endif %}
+    </div>
+
+    <!-- CLIENTES -->
+    <div class="panel" id="tab-clientes">
+      <div id="vista-clientes">
+        <div class="section-header">
+          <span class="section-title">Clientes</span>
+          {% if perms.clientes %}
+          <button class="btn btn-primary btn-sm" onclick="showFormCliente()">+ Cliente</button>
+          {% endif %}
+        </div>
+        <div id="form-cliente" style="display:none;margin-bottom:14px">
+          <div class="form-card">
+            <div class="form-title" id="fc-titulo">Nuevo cliente</div>
+            <div class="form-grid">
+              <div class="field"><label>Nombre</label><input type="text" id="c-nombre" placeholder="Juan Pérez"></div>
+              <div class="field"><label>Teléfono</label><input type="text" id="c-tel" placeholder="+56 9 ..."></div>
+              <div class="field"><label>Email</label><input type="text" id="c-email" placeholder="correo@..."></div>
+              <div class="field"><label>Tipo</label>
+                <select id="c-tipo"><option>Regular</option><option>VIP</option><option>Mayorista</option></select>
+              </div>
+              <div class="field" style="grid-column:span 2"><label>Notas</label><input type="text" id="c-notas" placeholder="Observaciones..."></div>
+            </div>
+            <div class="form-actions">
+              <button class="btn btn-ghost" onclick="cancelarFormCliente()">Cancelar</button>
+              <button class="btn btn-primary" onclick="guardarCliente()">Guardar</button>
+            </div>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <div class="search-row">
+            <input type="search" id="buscar-cliente" placeholder="Buscar cliente..." oninput="renderClientes()">
+            <select id="filtro-tipo" onchange="renderClientes()">
+              <option value="">Todos</option><option>Regular</option><option>VIP</option><option>Mayorista</option>
+            </select>
+          </div>
+          <table><thead><tr><th>Cliente</th><th>Teléfono</th><th>Tipo</th><th>Compras</th><th>Total gastado</th><th></th></tr></thead>
+          <tbody id="tabla-clientes"></tbody></table>
+        </div>
+      </div>
+      <div id="vista-detalle" style="display:none">
+        <div class="section-header">
+          <button class="btn btn-ghost btn-sm" onclick="volverClientes()">← Volver</button>
+        </div>
+        <div class="form-card" id="detalle-card"></div>
+      </div>
+    </div>
+
+    <!-- REPORTES -->
+    {% if perms.reportes %}
+    <div class="panel" id="tab-reportes">
+      <div class="period-btns">
+        <button class="period-btn active" onclick="setPeriodo(7,this)">7 días</button>
+        <button class="period-btn" onclick="setPeriodo(30,this)">30 días</button>
+        <button class="period-btn" onclick="setPeriodo(0,this)">Todo</button>
+      </div>
+      <div class="kpi-grid">
+        <div class="kpi green"><div class="kpi-val" id="r-ingresos">$0</div><div class="kpi-label">Ingresos totales</div></div>
+        <div class="kpi amber"><div class="kpi-val" id="r-ganancia">$0</div><div class="kpi-label">Ganancia estimada</div></div>
+        <div class="kpi blue"><div class="kpi-val" id="r-nventas">0</div><div class="kpi-label">N° de ventas</div></div>
+        <div class="kpi purple"><div class="kpi-val" id="r-ticket">$0</div><div class="kpi-label">Ticket promedio</div></div>
+      </div>
+      <div class="report-grid">
+        <div class="chart-card"><div class="chart-title">Ventas por día</div><div class="chart-wrap"><canvas id="chart-ventas-dia"></canvas></div></div>
+        <div class="chart-card"><div class="chart-title">Método de pago</div><div class="chart-wrap"><canvas id="chart-pago"></canvas></div></div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- HISTORIAL -->
+    <div class="panel" id="tab-historial">
+      <div class="table-wrap">
+        <table><thead><tr><th>Fecha/Hora</th><th>Usuario</th><th>Cliente</th><th>Productos</th><th>Total</th></tr></thead>
+        <tbody id="historial-body"></tbody></table>
+      </div>
+    </div>
+
+    <!-- ALERTAS -->
+    <div class="panel" id="tab-alertas">
+      <div id="alertas-body"></div>
+    </div>
+
+    <!-- EXPORTAR -->
+    {% if perms.exportar %}
+    <div class="panel" id="tab-exportar">
+      <div class="section-header">
+        <span class="section-title">Exportar datos</span>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px">
+
+        <div class="form-card">
+          <div class="form-title">Inventario completo</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Todos los productos con stock, precios y estado.</div>
+          <div style="display:flex;gap:8px">
+            <a href="/api/export/excel/inventario" class="btn btn-ghost btn-sm">Excel</a>
+            <a href="/api/export/pdf/inventario" class="btn btn-ghost btn-sm">PDF</a>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-title">Historial de ventas</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Todas las ventas con fecha, cliente y método de pago.</div>
+          <div style="display:flex;gap:8px">
+            <a href="/api/export/excel/ventas" class="btn btn-ghost btn-sm">Excel</a>
+            <a href="/api/export/pdf/ventas" class="btn btn-ghost btn-sm">PDF</a>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-title">Lista de clientes</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Clientes con contacto, tipo y total gastado.</div>
+          <div style="display:flex;gap:8px">
+            <a href="/api/export/excel/clientes" class="btn btn-ghost btn-sm">Excel</a>
+            <a href="/api/export/pdf/clientes" class="btn btn-ghost btn-sm">PDF</a>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-title">Productos con stock bajo</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Lista de productos que necesitan reposición urgente.</div>
+          <div style="display:flex;gap:8px">
+            <a href="/api/export/excel/stock-bajo" class="btn btn-ghost btn-sm">Excel</a>
+            <a href="/api/export/pdf/stock-bajo" class="btn btn-ghost btn-sm">PDF</a>
+          </div>
+        </div>
+
+        <div class="form-card">
+          <div class="form-title">Respaldo completo</div>
+          <div style="font-size:12px;color:var(--text2);margin-bottom:14px">Todos los datos en un Excel con múltiples hojas.</div>
+          <div style="display:flex;gap:8px">
+            <a href="/api/export/excel/completo" class="btn btn-primary btn-sm">Excel completo</a>
+          </div>
+        </div>
+
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- USUARIOS -->
+    {% if perms.usuarios %}
+    <div class="panel" id="tab-usuarios">
+      <div class="section-header">
+        <span class="section-title">Gestión de usuarios</span>
+        <button class="btn btn-primary btn-sm" onclick="showFormUsuario()">+ Usuario</button>
+      </div>
+      <div id="form-usuario" style="display:none;margin-bottom:14px">
+        <div class="form-card">
+          <div class="form-title" id="fu-titulo">Nuevo usuario</div>
+          <div class="form-grid">
+            <div class="field"><label>Nombre completo</label><input type="text" id="u-nombre" placeholder="Juan Pérez"></div>
+            <div class="field"><label>Usuario</label><input type="text" id="u-user" placeholder="juanperez"></div>
+            <div class="field"><label>Contraseña</label><input type="password" id="u-pass" placeholder="mínimo 6 caracteres"></div>
+            <div class="field"><label>Rol</label>
+              <select id="u-rol" onchange="updatePermCheckboxes()">
+                <option value="admin">Administrador</option>
+                <option value="vendedor">Vendedor</option>
+                <option value="bodega">Bodeguero</option>
+              </select>
+            </div>
+          </div>
+          <div style="margin-top:12px">
+            <div style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Permisos</div>
+            <div class="perm-grid">
+              <div class="perm-item"><input type="checkbox" id="p-inventario"><label for="p-inventario" class="perm-label">Editar inventario</label></div>
+              <div class="perm-item"><input type="checkbox" id="p-ventas"><label for="p-ventas" class="perm-label">Registrar ventas</label></div>
+              <div class="perm-item"><input type="checkbox" id="p-clientes"><label for="p-clientes" class="perm-label">Gestionar clientes</label></div>
+              <div class="perm-item"><input type="checkbox" id="p-reportes"><label for="p-reportes" class="perm-label">Ver reportes</label></div>
+              <div class="perm-item"><input type="checkbox" id="p-usuarios"><label for="p-usuarios" class="perm-label">Gestionar usuarios</label></div>
+              <div class="perm-item"><input type="checkbox" id="p-exportar"><label for="p-exportar" class="perm-label">Exportar datos</label></div>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn btn-ghost" onclick="cancelarFormUsuario()">Cancelar</button>
+            <button class="btn btn-primary" onclick="guardarUsuario()">Guardar</button>
+          </div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-bottom:20px">
+        <table><thead><tr><th>Nombre</th><th>Usuario</th><th>Rol</th><th>Último acceso</th><th>Estado</th><th></th></tr></thead>
+        <tbody id="tabla-usuarios"></tbody></table>
+      </div>
+      <div class="section-title" style="margin-bottom:10px">Registro de actividad</div>
+      <div class="form-card" id="log-actividad" style="max-height:220px;overflow-y:auto"></div>
+    </div>
+    {% endif %}
+
+  </div>
+</div>
+
+<script>
+const PERMS = {{ perms | tojson }};
+</script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

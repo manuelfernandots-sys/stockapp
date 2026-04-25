@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>stock.app — Ingresar</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="login-page">
+<div class="login-box">
+  <div class="login-logo">stock<span>.app</span></div>
+  <div class="login-sub">Ingresa a tu negocio</div>
+
+  <div class="login-field">
+    <label>Usuario</label>
+    <input type="text" id="l-user" placeholder="usuario" autofocus>
+  </div>
+  <div class="login-field">
+    <label>Contraseña</label>
+    <input type="password" id="l-pass" placeholder="••••••••">
+  </div>
+  <div class="login-error" id="l-error"></div>
+  <button class="btn-login" id="btn-login">Ingresar</button>
+
+  <div class="demo-users">
+    <div class="demo-label">Usuarios de demostración</div>
+    <button class="demo-btn" onclick="fillDemo('admin','admin123')">
+      <strong>admin</strong>Administrador — acceso total
+    </button>
+    <button class="demo-btn" onclick="fillDemo('vendedor','venta123')">
+      <strong>vendedor</strong>Vendedor — ventas e inventario
+    </button>
+    <button class="demo-btn" onclick="fillDemo('bodega','bodega123')">
+      <strong>bodega</strong>Bodeguero — solo lectura
+    </button>
+  </div>
+</div>
+
+<script>
+function fillDemo(u, p) {
+  document.getElementById('l-user').value = u;
+  document.getElementById('l-pass').value = p;
+  document.getElementById('l-error').textContent = '';
+}
+
+async function doLogin() {
+  const user = document.getElementById('l-user').value.trim();
+  const password = document.getElementById('l-pass').value;
+  const btn = document.getElementById('btn-login');
+  btn.disabled = true;
+  btn.textContent = 'Ingresando...';
+  const res = await fetch('/api/login', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ user, password })
+  });
+  const data = await res.json();
+  if (res.ok) {
+    window.location.href = '/';
+  } else {
+    document.getElementById('l-error').textContent = data.error || 'Error al ingresar';
+    btn.disabled = false;
+    btn.textContent = 'Ingresar';
+  }
+}
+
+document.getElementById('btn-login').addEventListener('click', doLogin);
+document.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+</script>
+</body>
+</html>
